@@ -11,6 +11,7 @@ import os
 from credentials import OPENAI_API_KEY
 from templates import template_for_has_cancer, template_for_does_not_have_cancer
 from utils import cancer_category
+from app import predict
 from PIL import Image
 import io
 
@@ -31,11 +32,23 @@ tools = [
     )
 ]
 
-async def call_detection_model():
-    return {
-        "has_cancer":True, 
-        "chances_of_having_cancer":30
-    }
+
+def call_detection_model(index):
+    results = [
+        {
+            "has_cancer":False, 
+            "chances_of_having_cancer":8.64
+        },
+        {
+            "has_cancer":True, 
+            "chances_of_having_cancer":97.89
+        },
+        {
+            "has_cancer":False,
+            "chances_of_having_cancer":2.78
+        }
+    ]
+    return results[index]
 
 class CustomPromptTemplate(StringPromptTemplate):
     # The template to use
@@ -60,7 +73,6 @@ class CustomPromptTemplate(StringPromptTemplate):
         return self.template.format(**kwargs)
 
 class CustomOutputParser(AgentOutputParser):
-    
     def parse(self, llm_output: str) -> Union[AgentAction, AgentFinish]:
         # Check if agent should finish
         if "Final Answer:" in llm_output:
@@ -82,20 +94,27 @@ class CustomOutputParser(AgentOutputParser):
 
 template = None
 prompt_with_history = None
+from contextlib import redirect_stdout
+
 
 @cl.on_chat_start
 async def main():
+    cl.user_session.set("index", 0)
     cl.user_session.set("has_uploaded_image", False)
     await cl.Message("Upload image of your condition").send()
 
 @cl.on_file_upload(accept=['image/png'])
 async def main(file:any):
+    index = cl.user_session.get("index")
     file = file[0]["content"]
     image_stream = io.BytesIO(file)
     image = Image.open(image_stream)
+    image = image.convert('RGB')
+    image = image.resize((150, 150))
     image.save("image.png", 'png')
+    results = call_detection_model(index)
+    cl.user_session.set("index", index+1)
     image.close()
-    results = await call_detection_model()
     cl.user_session.set("results", results)
     if results["has_cancer"]:
         cl.user_session.set("template", template_for_has_cancer)
